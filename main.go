@@ -43,6 +43,11 @@ func run() {
 		panic(err)
 	}
 
+	atlas, err := glitch.DefaultAtlas()
+	if err != nil { panic(err) }
+
+	healthText := atlas.Text("Health: 10")
+
 	shader, err := glitch.NewShader(shaders.SpriteShader)
 	if err != nil { panic(err) }
 	pass := glitch.NewRenderPass(shader)
@@ -51,7 +56,9 @@ func run() {
 
 	levelBounds := glitch.R(0, 0, 900, 700).CenterAt(glitch.Vec2{}).Moved(glitch.Vec2{0, -100})
 
-	game := NewGame(levelBounds, spritesheet)
+	game := NewGame(win, levelBounds, spritesheet)
+
+	game.Reset()
 
 	packingLine, err := spritesheet.Get("packing-line-0.png")
 	if err != nil { panic(err) }
@@ -103,6 +110,39 @@ func run() {
 			}
 		}
 
+		if len(game.packages) <= 0 && game.heldShape == nil {
+			stillActive := false
+			game.space.EachBody(func(body *cp.Body) {
+				fmt.Println("Idle", body.IdleTime())
+				// Don't search if something is still active
+				if body.IdleTime() < 0.1 {
+					stillActive = true
+				}
+			})
+			if !stillActive {
+				// Check end conditions
+				areaBB := cp.BB{
+					L: game.acceptBounds.Min[0],
+					B: game.acceptBounds.Min[1],
+					R: game.acceptBounds.Max[0],
+					T: game.acceptBounds.Max[1],
+				}
+
+				healthLost := 0
+				game.space.EachShape(func(shape *cp.Shape) {
+					sprite := shape.Body().UserData.(Sprite)
+					if !sprite.isPackage { return } // Skip if not a package
+
+					if !areaBB.Contains(shape.BB()) {
+						healthLost++
+					}
+				})
+
+				game.health -= healthLost
+				game.Reset()
+			}
+		}
+
 		pass.Clear()
 
 		packingLine.RectDraw(pass, game.acceptBounds)
@@ -110,6 +150,15 @@ func run() {
 		game.space.EachBody(func(body *cp.Body) {
 			DrawBody(pass, body)
 		})
+
+		game.DrawNextPackages(pass, 8)
+
+		{
+			healthText.Set(fmt.Sprintf("Health: %d", game.health))
+			mat := glitch.Mat4Ident
+			mat.Translate(-win.Bounds().W()/2, -win.Bounds().H()/2, 0)
+			healthText.Draw(pass, mat)
+		}
 
 		glitch.Clear(win, glitch.Black)
 
@@ -122,6 +171,7 @@ func run() {
 }
 
 type Game struct {
+	win *glitch.Window
 	spritesheet *asset.Spritesheet
 	space *cp.Space
 
@@ -130,6 +180,8 @@ type Game struct {
 	dropHeight float64
 	levelBounds, activeBounds, pegBounds, acceptBounds glitch.Rect
 
+	health int
+
 	heldShape *cp.Shape
 	packages []string
 
@@ -137,73 +189,72 @@ type Game struct {
 	allPegs []phy2.Pos
 }
 
-func NewGame(levelBounds glitch.Rect, spritesheet *asset.Spritesheet) *Game {
-	space := cp.NewSpace()
-	space.Iterations = 4
-	// space.IdleSpeedThreshold = 15
-	// space.SleepTimeThreshold = 0.1
+func NewGame(win *glitch.Window, levelBounds glitch.Rect, spritesheet *asset.Spritesheet) *Game {
+	game := &Game{
+		win: win,
+		spritesheet: spritesheet,
+		health: 10,
 
-	space.UseSpatialHash(2.0, 10000)
-	space.SetGravity(cp.Vector{0, Gravity})
+		levelBounds: levelBounds,
+	}
+
+	return game
+}
+
+func (g *Game) Reset() {
+	g.space = cp.NewSpace()
+	g.space.Iterations = 4
+	// g.space.IdleSpeedThreshold = 0.1
+	g.space.SleepTimeThreshold = 1
+
+	g.space.UseSpatialHash(2.0, 10000)
+	g.space.SetGravity(cp.Vector{0, Gravity})
 
 	// Walls
 	{
-
 		// fmt.Println(levelBounds)
 		thickness := 25.0
 		walls := []glitch.Rect{
-			glitch.R(levelBounds.Min[0], levelBounds.Min[1],
-				levelBounds.Max[0], levelBounds.Min[1] + thickness),
-			glitch.R(levelBounds.Min[0], levelBounds.Min[1],
-				levelBounds.Min[0] + thickness, levelBounds.Max[1]),
-			glitch.R(levelBounds.Max[0] - thickness, levelBounds.Min[1],
-				levelBounds.Max[0], levelBounds.Max[1]),
+			glitch.R(g.levelBounds.Min[0], g.levelBounds.Min[1],
+				g.levelBounds.Max[0], g.levelBounds.Min[1] + thickness),
+			glitch.R(g.levelBounds.Min[0], g.levelBounds.Min[1],
+				g.levelBounds.Min[0] + thickness, g.levelBounds.Max[1]),
+			glitch.R(g.levelBounds.Max[0] - thickness, g.levelBounds.Min[1],
+				g.levelBounds.Max[0], g.levelBounds.Max[1]),
 		}
 
 		for _, wall := range walls {
-			sprite, err := spritesheet.Get("wall-0.png")
+			sprite, err := g.spritesheet.Get("wall-0.png")
 			if err != nil { panic(err) }
 
 			s := NewSprite(sprite)
 			s.scale = glitch.Vec2{wall.W() / sprite.Bounds().W(), wall.H() / sprite.Bounds().H()}
 
 			shape := makeWall(s, wall)
-			space.AddBody(shape.Body())
-			space.AddShape(shape)
+			g.space.AddBody(shape.Body())
+			g.space.AddShape(shape)
 		}
 	}
 
-	packages := make([]string, 100) // TODO: Number of packages
-	for i := range packages {
+	g.packages = make([]string, 10) // TODO: Number of packages
+	for i := range g.packages {
 		packageNum := rand.Intn(6) // TODO: number of package sprites
-		packages[i] = fmt.Sprintf("package-%d.png", packageNum)
+		g.packages[i] = fmt.Sprintf("package-%d.png", packageNum)
 	}
 
-	activeBounds := levelBounds.Unpad(glitch.R(100, 0, 100, 0))
-	pegBounds := activeBounds.Unpad(glitch.R(0, levelBounds.H()/2, 0, 100))
-	acceptBounds := activeBounds.Unpad(glitch.R(0, 0, 0, 100 + levelBounds.H()/2))
+	g.activeBounds = g.levelBounds.Unpad(glitch.R(100, 0, 100, 0))
+	g.pegBounds = g.activeBounds.Unpad(glitch.R(0, g.levelBounds.H()/2, 0, 100))
+	g.acceptBounds = g.levelBounds.Unpad(glitch.R(0, 0, 0, 100 + g.levelBounds.H()/2))
 
-	game := &Game{
-		spritesheet: spritesheet,
-		space: space,
-		dropHeight: levelBounds.Max[1] + 200,
-		levelBounds: levelBounds,
-		activeBounds: activeBounds,
-		pegBounds: pegBounds,
-		acceptBounds: acceptBounds,
-
-		packages: packages,
-
-		allPegs: make([]phy2.Pos, 0),
-	}
-	game.heldShape = game.GetNextPackage()
+	g.heldShape = g.GetNextPackage()
 
 	// TODO: NumPegs
+	g.allPegs = make([]phy2.Pos, 0)
 	for i := 0; i < 10; i++ {
-		game.AddPeg()
+		g.AddPeg()
 	}
 
-	return game
+	g.dropHeight = g.levelBounds.Max[1] + 200
 }
 
 func (g *Game) AddPeg() {
@@ -267,6 +318,29 @@ func (g *Game) GetNextPackage() *cp.Shape {
 	return shape
 }
 
+func (g *Game) DrawNextPackages(pass *glitch.RenderPass, num int) {
+	screenHeight := g.win.Bounds().H()
+
+	packageOffset :=  (3.0/4.0) * screenHeight / float64(num)
+
+	startY := g.dropHeight - 100
+	startX := g.levelBounds.Min[0] - 300
+
+	for i := 0; i < num; i++ {
+		if i >= len(g.packages) { break }
+
+		sprite, err := g.spritesheet.Get(g.packages[i])
+		if err != nil { panic(err) }
+
+
+		mat := glitch.Mat4Ident
+		mat.Translate(startX, startY, 0)
+		sprite.Draw(pass, mat)
+
+		startY -= packageOffset
+	}
+}
+
 func DrawBody(pass *glitch.RenderPass, body *cp.Body) {
 	geom := glitch.NewGeomDraw()
 	geom.SetColor(glitch.White)
@@ -290,6 +364,7 @@ func makePackage(sprite Sprite, x, y float64) *cp.Shape {
 	width := sprite.sprite.Bounds().W()
 	height := sprite.sprite.Bounds().H()
 
+	sprite.isPackage = true
 	body.UserData = sprite
 
 	// shape := cp.NewCircle(body, 8, cp.Vector{})
@@ -341,6 +416,7 @@ type Sprite struct {
 	// mesh *glitch.Mesh
 	sprite *glitch.Sprite
 	scale glitch.Vec2
+	isPackage bool
 }
 func NewSprite(s *glitch.Sprite) Sprite {
 	return Sprite{

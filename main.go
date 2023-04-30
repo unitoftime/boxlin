@@ -9,6 +9,7 @@ import (
 	"time"
 	"math/rand"
 	"embed"
+	"unicode"
 
 	"github.com/jakecoffman/cp"
 
@@ -48,8 +49,17 @@ func run() {
 		panic(err)
 	}
 
-	atlas, err := glitch.DefaultAtlas()
-	if err != nil { panic(err) }
+	// atlas, err := glitch.DefaultAtlas()
+	// if err != nil { panic(err) }
+	font, err := load.Font("assets/ThaleahFat.ttf", 64)
+	if err != nil {
+		panic(err)
+	}
+	runes := make([]rune, unicode.MaxASCII - 32)
+	for i := range runes {
+		runes[i] = rune(32 + i)
+	}
+	atlas := glitch.NewAtlas(font, runes, true, 0)
 
 	healthText := atlas.Text("Health: 10")
 	menuText := atlas.Text("Press Space To Play!")
@@ -279,11 +289,13 @@ func (g *Game) ResetLevel() {
 		}
 
 		for _, wall := range walls {
-			sprite, err := g.spritesheet.Get("wall-0.png")
+			ninePanel, err := g.spritesheet.GetNinePanel("wall-0.png", glitch.R(8, 8, 8, 8))
 			if err != nil { panic(err) }
 
-			s := NewSprite(sprite)
-			s.scale = glitch.Vec2{wall.W() / sprite.Bounds().W(), wall.H() / sprite.Bounds().H()}
+			s := NewSprite(nil)
+			s.ninePanel = ninePanel
+			s.rect = glitch.R(-wall.W()/2, -wall.H()/2, wall.W()/2, wall.H()/2)
+			// s.scale = glitch.Vec2{wall.W() / s.ninePanel.Bounds().W(), wall.H() / s.ninePanel.Bounds().H()}
 
 			shape := makeWall(s, wall)
 			g.space.AddBody(shape.Body())
@@ -291,9 +303,22 @@ func (g *Game) ResetLevel() {
 		}
 	}
 
+	numSprites := 11
 	g.packages = make([]string, 10 + g.difficulty)
 	for i := range g.packages {
-		packageNum := rand.Intn(6) // TODO: number of package sprites
+		packageNum := rand.Intn(numSprites)
+
+		if packageNum > 7 {
+			packageNum = rand.Intn(numSprites)
+			if packageNum > 7 {
+				if packageNum > 7 {
+					if packageNum > 7 {
+						packageNum = rand.Intn(numSprites)
+					}
+				}
+			}
+		}
+
 		g.packages[i] = fmt.Sprintf("package-%d.png", packageNum)
 	}
 
@@ -406,11 +431,16 @@ func DrawBody(pass *glitch.RenderPass, body *cp.Body) {
 	pos := body.Position()
 	angle := body.Angle()
 
-	mat := glitch.Mat4Ident
-	mat.Scale(sprite.scale[0], sprite.scale[1], 1.0)
-	mat.Rotate(angle, glitch.Vec3{0, 0, 1})
-	mat.Translate(pos.X, pos.Y, 0)
-	sprite.sprite.Draw(pass, mat)
+
+	if sprite.sprite != nil {
+		mat := glitch.Mat4Ident
+		mat.Scale(sprite.scale[0], sprite.scale[1], 1.0)
+		mat.Rotate(angle, glitch.Vec3{0, 0, 1})
+		mat.Translate(pos.X, pos.Y, 0)
+		sprite.sprite.Draw(pass, mat)
+	} else if sprite.ninePanel != nil {
+		sprite.ninePanel.RectDraw(pass, sprite.rect.Moved(glitch.Vec2{pos.X, pos.Y}))
+	}
 }
 
 func makePackage(sprite Sprite, x, y float64) *cp.Shape {
@@ -473,6 +503,8 @@ func makeWall(sprite Sprite, rect glitch.Rect) *cp.Shape {
 type Sprite struct {
 	// mesh *glitch.Mesh
 	sprite *glitch.Sprite
+	ninePanel *glitch.NinePanelSprite
+	rect glitch.Rect
 	scale glitch.Vec2
 	isPackage bool
 }

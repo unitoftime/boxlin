@@ -1,5 +1,9 @@
 package main
 
+// TODO:
+// 1. Music?
+// 2. Main Menu
+
 import (
 	"fmt"
 	"time"
@@ -7,6 +11,8 @@ import (
 	"embed"
 
 	"github.com/jakecoffman/cp"
+
+	"github.com/hajimehoshi/go-mp3"
 
 	"github.com/unitoftime/flow/phy2"
 	"github.com/unitoftime/flow/asset"
@@ -23,7 +29,6 @@ const (
 )
 
 func main() {
-	fmt.Println("Running")
 	glitch.Run(run)
 }
 
@@ -47,6 +52,7 @@ func run() {
 	if err != nil { panic(err) }
 
 	healthText := atlas.Text("Health: 10")
+	menuText := atlas.Text("Press Space To Play!")
 
 	shader, err := glitch.NewShader(shaders.SpriteShader)
 	if err != nil { panic(err) }
@@ -58,7 +64,13 @@ func run() {
 
 	game := NewGame(win, levelBounds, spritesheet)
 
-	game.Reset()
+	game.mode = "menu"
+
+	// game.player = NewAudioPlayer()
+	// game.hitSound = LoadMp3(load, "assets/hit.mp3")
+	// game.player.Play(game.hitSound)
+
+	game.ResetLevel()
 
 	packingLine, err := spritesheet.Get("packing-line-0.png")
 	if err != nil { panic(err) }
@@ -68,96 +80,113 @@ func run() {
 		camPos := win.Bounds().Center()
 		camera.SetView2D(-camPos[0], -camPos[1], 1.0, 1.0)
 
-		if win.Pressed(glitch.KeyEscape) {
-			win.Close()
-		}
-
 		mouseX, mouseY := win.MousePosition()
 		game.mousePos = camera.Unproject(glitch.Vec3{mouseX, mouseY, 0})
 
-		// Limit mouse pos within the level bounds
-		// heldPkgWidth := 100.0
-		// if game.heldShape != nil {
-		// 	heldSprite := game.heldShape.Body().UserData.(Sprite)
-		// 	heldPkgWidth = heldSprite.sprite.Bounds().W()
-		// }
-		// if game.mousePos[0] < game.levelBounds.Min[0] + (heldPkgWidth/2) {
-		// 	game.mousePos[0] = game.levelBounds.Min[0] + (heldPkgWidth/2)
-		// } else if game.mousePos[0] > game.levelBounds.Max[0] - (heldPkgWidth/2) {
-		// 	game.mousePos[0] = game.levelBounds.Max[0] - (heldPkgWidth/2)
-		// }
-		if game.mousePos[0] < game.activeBounds.Min[0] {
-			game.mousePos[0] = game.activeBounds.Min[0]
-		} else if game.mousePos[0] > game.activeBounds.Max[0] {
-			game.mousePos[0] = game.activeBounds.Max[0]
-		}
-
-		if game.heldShape != nil {
-			game.heldShape.Body().SetPosition(cp.Vector{game.mousePos[0], game.dropHeight})
-
-			if win.Pressed(glitch.MouseButtonLeft) {
-				game.heldShape.Body().SetVelocity(0, -20)
-				game.heldShape = nil
-				game.lastDropTime = time.Now()
+		if game.mode == "menu" {
+			if win.JustPressed(glitch.KeySpace) {
+				game.ResetGame()
+				game.mode = "game"
 			}
-		}
-
-		game.space.Step(128 * time.Millisecond.Seconds())
-
-		if game.heldShape == nil {
-			if time.Since(game.lastDropTime) > 100 * time.Millisecond {
-				game.heldShape = game.GetNextPackage()
+			if win.JustPressed(glitch.KeyEscape) {
+				win.Close()
 			}
-		}
+		} else if game.mode == "game" {
+			if win.JustPressed(glitch.KeyEscape) {
+				game.mode = "menu"
+			}
 
-		if len(game.packages) <= 0 && game.heldShape == nil {
-			stillActive := false
-			game.space.EachBody(func(body *cp.Body) {
-				fmt.Println("Idle", body.IdleTime())
-				// Don't search if something is still active
-				if body.IdleTime() < 0.1 {
-					stillActive = true
+			// Limit mouse pos within the level bounds
+			if game.mousePos[0] < game.activeBounds.Min[0] {
+				game.mousePos[0] = game.activeBounds.Min[0]
+			} else if game.mousePos[0] > game.activeBounds.Max[0] {
+				game.mousePos[0] = game.activeBounds.Max[0]
+			}
+
+			if game.heldShape != nil {
+				game.heldShape.Body().SetPosition(cp.Vector{game.mousePos[0], game.dropHeight})
+				game.heldShape.Body().SetAngularVelocity(0)
+
+				if win.Pressed(glitch.MouseButtonLeft) {
+					game.heldShape.Body().SetVelocity(0, -20)
+					game.heldShape = nil
+					game.lastDropTime = time.Now()
 				}
-			})
-			if !stillActive {
-				// Check end conditions
-				areaBB := cp.BB{
-					L: game.acceptBounds.Min[0],
-					B: game.acceptBounds.Min[1],
-					R: game.acceptBounds.Max[0],
-					T: game.acceptBounds.Max[1],
+			}
+
+			game.space.Step(128 * time.Millisecond.Seconds())
+
+			if game.heldShape == nil {
+				if time.Since(game.lastDropTime) > 100 * time.Millisecond {
+					game.heldShape = game.GetNextPackage()
 				}
+			}
 
-				healthLost := 0
-				game.space.EachShape(func(shape *cp.Shape) {
-					sprite := shape.Body().UserData.(Sprite)
-					if !sprite.isPackage { return } // Skip if not a package
-
-					if !areaBB.Contains(shape.BB()) {
-						healthLost++
+			if len(game.packages) <= 0 && game.heldShape == nil {
+				stillActive := false
+				game.space.EachBody(func(body *cp.Body) {
+					// fmt.Println("Idle", body.IdleTime())
+					// Don't search if something is still active
+					if body.IdleTime() < 0.1 {
+						stillActive = true
 					}
 				})
+				if !stillActive {
+					game.idleCounter++
+				}
 
-				game.health -= healthLost
-				game.Reset()
+				if game.idleCounter > 100 {
+					// Check end conditions
+					areaBB := cp.BB{
+						L: game.acceptBounds.Min[0],
+						B: game.acceptBounds.Min[1],
+						R: game.acceptBounds.Max[0],
+						T: game.acceptBounds.Max[1],
+					}
+
+					healthLost := 0
+					game.space.EachShape(func(shape *cp.Shape) {
+						sprite := shape.Body().UserData.(Sprite)
+						if !sprite.isPackage { return } // Skip if not a package
+
+						if !areaBB.Contains(shape.BB()) {
+							healthLost++
+						}
+					})
+
+					game.health -= healthLost
+					if game.health <= 0 {
+						// TODO: set record level
+						game.mode = "menu"
+					}
+
+					game.difficulty++
+
+					game.ResetLevel()
+				}
 			}
 		}
 
 		pass.Clear()
 
-		packingLine.RectDraw(pass, game.acceptBounds)
+		if game.mode == "menu" {
+			rect := glitch.R(-300, 0, 300, 100)
+			menuText.DrawRect(pass, rect, glitch.White)
+		} else if game.mode == "game" {
+			packingLine.RectDraw(pass, game.acceptBounds)
 
-		game.space.EachBody(func(body *cp.Body) {
-			DrawBody(pass, body)
-		})
+			game.space.EachBody(func(body *cp.Body) {
+				DrawBody(pass, body)
+			})
 
-		game.DrawNextPackages(pass, 8)
+			game.DrawNextPackages(pass, 8)
 
-		{
-			healthText.Set(fmt.Sprintf("Health: %d", game.health))
-			mat := glitch.Mat4Ident
-			mat.Translate(-win.Bounds().W()/2, -win.Bounds().H()/2, 0)
-			healthText.Draw(pass, mat)
+			{
+				healthText.Set(fmt.Sprintf("Health: %d", game.health))
+				mat := glitch.Mat4Ident
+				mat.Translate(-win.Bounds().W()/2, -win.Bounds().H()/2, 0)
+				healthText.Draw(pass, mat)
+			}
 		}
 
 		glitch.Clear(win, glitch.Black)
@@ -171,9 +200,12 @@ func run() {
 }
 
 type Game struct {
+	mode string
+
 	win *glitch.Window
 	spritesheet *asset.Spritesheet
 	space *cp.Space
+	difficulty int
 
 	mousePos glitch.Vec3
 
@@ -181,12 +213,17 @@ type Game struct {
 	levelBounds, activeBounds, pegBounds, acceptBounds glitch.Rect
 
 	health int
+	idleCounter int
 
 	heldShape *cp.Shape
 	packages []string
 
 	lastDropTime time.Time
 	allPegs []phy2.Pos
+
+	// Audio
+	player *AudioPlayer
+	hitSound *mp3.Decoder
 }
 
 func NewGame(win *glitch.Window, levelBounds glitch.Rect, spritesheet *asset.Spritesheet) *Game {
@@ -194,6 +231,7 @@ func NewGame(win *glitch.Window, levelBounds glitch.Rect, spritesheet *asset.Spr
 		win: win,
 		spritesheet: spritesheet,
 		health: 10,
+		difficulty: 0,
 
 		levelBounds: levelBounds,
 	}
@@ -201,7 +239,13 @@ func NewGame(win *glitch.Window, levelBounds glitch.Rect, spritesheet *asset.Spr
 	return game
 }
 
-func (g *Game) Reset() {
+func (g *Game) ResetGame() {
+	g.health = 10
+	g.difficulty = 0
+	g.ResetLevel()
+}
+
+func (g *Game) ResetLevel() {
 	g.space = cp.NewSpace()
 	g.space.Iterations = 4
 	// g.space.IdleSpeedThreshold = 0.1
@@ -209,6 +253,17 @@ func (g *Game) Reset() {
 
 	g.space.UseSpatialHash(2.0, 10000)
 	g.space.SetGravity(cp.Vector{0, Gravity})
+
+	// handler := g.space.NewCollisionHandler(cp.WILDCARD_COLLISION_TYPE, cp.WILDCARD_COLLISION_TYPE)
+	// handler.BeginFunc = func(arb *cp.Arbiter, space *cp.Space, userData interface{}) bool {
+	// 	fmt.Println("Collision")
+	// 	// g.player.Play(g.hitSound)
+	// 	return true
+	// }
+	// handler.SeparateFunc = func(arb *cp.Arbiter, space *cp.Space, userData interface{}) {
+	// 	// g.player.Play(g.hitSound)
+	// 	fmt.Println("Sep")
+	// }
 
 	// Walls
 	{
@@ -236,7 +291,7 @@ func (g *Game) Reset() {
 		}
 	}
 
-	g.packages = make([]string, 10) // TODO: Number of packages
+	g.packages = make([]string, 10 + g.difficulty)
 	for i := range g.packages {
 		packageNum := rand.Intn(6) // TODO: number of package sprites
 		g.packages[i] = fmt.Sprintf("package-%d.png", packageNum)
@@ -248,13 +303,14 @@ func (g *Game) Reset() {
 
 	g.heldShape = g.GetNextPackage()
 
-	// TODO: NumPegs
+	numPegs := 10 + g.difficulty
 	g.allPegs = make([]phy2.Pos, 0)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < numPegs; i++ {
 		g.AddPeg()
 	}
 
 	g.dropHeight = g.levelBounds.Max[1] + 200
+	g.idleCounter = 0
 }
 
 func (g *Game) AddPeg() {
@@ -299,9 +355,9 @@ func (g *Game) AddPeg() {
 
 func (g *Game) GetNextPackage() *cp.Shape {
 	if len(g.packages) <= 0 {
-		fmt.Println("You Win")
 		return nil
 	}
+
 	pkg := g.packages[0]
 	g.packages = g.packages[1:]
 	fmt.Println("NextPackage: ", pkg)
@@ -369,6 +425,7 @@ func makePackage(sprite Sprite, x, y float64) *cp.Shape {
 
 	// shape := cp.NewCircle(body, 8, cp.Vector{})
 	shape := cp.NewBox(body, width, height, 0)
+	shape.SetCollisionType(cp.WILDCARD_COLLISION_TYPE)
 	shape.SetElasticity(0.5)
 	shape.SetDensity(1)
 	shape.SetFriction(0.5)
@@ -386,6 +443,7 @@ func makePeg(sprite Sprite, x, y float64) *cp.Shape {
 	body.UserData = sprite
 
 	shape := cp.NewCircle(body, radius, cp.Vector{})
+	shape.SetCollisionType(cp.WILDCARD_COLLISION_TYPE)
 	shape.SetElasticity(0.5)
 	shape.SetDensity(1)
 	shape.SetFriction(0.2)

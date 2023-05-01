@@ -6,9 +6,8 @@ package main
 // - [x] Draw a game background
 // - [x] Show highest level achieved
 // - [x] Make a main menu background
-// - [ ] performance testing and wasm
-// - [ ] make pegs stand out better
-// - [ ] Make a song
+// - [x] performance testing and wasm
+// - [x] make pegs stand out better
 // - [ ] Submit???
 
 import (
@@ -117,9 +116,9 @@ func run() {
 				game.ResetGame()
 				game.mode = "game"
 			}
-			// if win.JustPressed(glitch.KeyEscape) {
-			// 	win.Close()
-			// }
+			if win.JustPressed(glitch.KeyEscape) {
+				win.Close()
+			}
 		} else if game.mode == "game" {
 			if win.JustPressed(glitch.KeyEscape) {
 				game.mode = "menu"

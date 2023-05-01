@@ -68,6 +68,7 @@ func (a *AudioPlayer) Play(decoder *mp3.Decoder) {
 
 	go func() {
 		player := a.ctx.NewPlayer(infLoop)
+		player.SetVolume(0.5)
 		a.player = player
 
 		// Play starts playing the sound and returns without waiting for it (Play() is async).

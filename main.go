@@ -99,6 +99,9 @@ func run() {
 	// packingLine, err := spritesheet.GetNinePanel("packing-line-0.png", glitch.R(border, border, border, border))
 	if err != nil { panic(err) }
 
+	// dt := 16 * time.Millisecond
+	// frameStart := time.Now()
+
 	for !win.Closed() {
 		camera.SetOrtho2D(win.Bounds())
 		camPos := win.Bounds().Center()
@@ -145,6 +148,8 @@ func run() {
 			}
 
 			game.space.Step(128 * time.Millisecond.Seconds())
+			// fixedDt := (16 * time.Millisecond.Seconds()) * math.Ceil(((8 * dt.Seconds()) / (16 * time.Millisecond.Seconds())))
+			// game.space.Step(fixedDt)
 
 			if game.heldShape == nil {
 				if time.Since(game.lastDropTime) > 100 * time.Millisecond {
@@ -253,6 +258,9 @@ func run() {
 		pass.Draw(win)
 
 		win.Update()
+
+		// dt = time.Since(frameStart)
+		// frameStart = time.Now()
 	}
 }
 
@@ -305,7 +313,7 @@ func (g *Game) ResetGame() {
 
 func (g *Game) ResetLevel() {
 	g.space = cp.NewSpace()
-	g.space.Iterations = 8
+	g.space.Iterations = 16
 	// g.space.IdleSpeedThreshold = 0.1
 	g.space.SleepTimeThreshold = 1
 

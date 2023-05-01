@@ -1,12 +1,19 @@
 package main
 
 // TODO:
-// 1. Music?
-// 2. Main Menu
+// - [x] Background Music 'M' To Mute
+// - [x] Jomy package
+// - [x] Draw a game background
+// - [x] Show highest level achieved
+// - [x] Make a main menu background
+// - [ ] performance testing and wasm
+// - [ ] Make a song
+// - [ ] Submit???
 
 import (
 	"fmt"
 	"time"
+	"math"
 	"math/rand"
 	"embed"
 	"unicode"
@@ -49,8 +56,6 @@ func run() {
 		panic(err)
 	}
 
-	// atlas, err := glitch.DefaultAtlas()
-	// if err != nil { panic(err) }
 	font, err := load.Font("assets/ThaleahFat.ttf", 64)
 	if err != nil {
 		panic(err)
@@ -61,8 +66,10 @@ func run() {
 	}
 	atlas := glitch.NewAtlas(font, runes, true, 0)
 
-	healthText := atlas.Text("Health: 10")
-	menuText := atlas.Text("Press Space To Play!")
+	healthText := atlas.Text(" Health: 10")
+	menuText := atlas.Text(" Press Space To Play!")
+	muteText := atlas.Text(" Press M To Mute")
+	recordText := atlas.Text("High Score: 0")
 
 	shader, err := glitch.NewShader(shaders.SpriteShader)
 	if err != nil { panic(err) }
@@ -76,13 +83,18 @@ func run() {
 
 	game.mode = "menu"
 
-	// game.player = NewAudioPlayer()
+	game.player = NewAudioPlayer()
+	bgMusic := LoadMp3(load, "assets/bg.mp3")
+	game.player.Play(bgMusic)
 	// game.hitSound = LoadMp3(load, "assets/hit.mp3")
 	// game.player.Play(game.hitSound)
 
 	game.ResetLevel()
 
-	packingLine, err := spritesheet.Get("packing-line-0.png")
+	packingLine, err := spritesheet.Get("background-0.png")
+	// packingLine, err := spritesheet.Get("packing-line-0.png")
+	// border := 0.0
+	// packingLine, err := spritesheet.GetNinePanel("packing-line-0.png", glitch.R(border, border, border, border))
 	if err != nil { panic(err) }
 
 	for !win.Closed() {
@@ -92,6 +104,10 @@ func run() {
 
 		mouseX, mouseY := win.MousePosition()
 		game.mousePos = camera.Unproject(glitch.Vec3{mouseX, mouseY, 0})
+
+		if win.JustPressed(glitch.KeyM) {
+			game.player.TogglePlayPause()
+		}
 
 		if game.mode == "menu" {
 			if win.JustPressed(glitch.KeySpace) {
@@ -115,9 +131,11 @@ func run() {
 
 			if game.heldShape != nil {
 				game.heldShape.Body().SetPosition(cp.Vector{game.mousePos[0], game.dropHeight})
+				game.heldShape.Body().SetVelocity(0, 0)
 				game.heldShape.Body().SetAngularVelocity(0)
+				game.heldShape.Body().SetAngle(0)
 
-				if win.Pressed(glitch.MouseButtonLeft) {
+				if win.JustPressed(glitch.MouseButtonLeft) {
 					game.heldShape.Body().SetVelocity(0, -20)
 					game.heldShape = nil
 					game.lastDropTime = time.Now()
@@ -145,7 +163,13 @@ func run() {
 					game.idleCounter++
 				}
 
-				if game.idleCounter > 100 {
+				// Force timeout if it never stabilizes
+				timeoutEndLevel := false
+				if time.Since(game.lastDropTime) > 10 * time.Second {
+					timeoutEndLevel = true
+				}
+
+				if game.idleCounter > 100 || timeoutEndLevel {
 					// Check end conditions
 					areaBB := cp.BB{
 						L: game.acceptBounds.Min[0],
@@ -166,7 +190,9 @@ func run() {
 
 					game.health -= healthLost
 					if game.health <= 0 {
-						// TODO: set record level
+						if game.difficulty > game.record {
+							game.record = game.difficulty
+						}
 						game.mode = "menu"
 					}
 
@@ -182,8 +208,25 @@ func run() {
 		if game.mode == "menu" {
 			rect := glitch.R(-300, 0, 300, 100)
 			menuText.DrawRect(pass, rect, glitch.White)
+			muteText.DrawRect(pass,
+				glitch.R(-win.Bounds().W()/2, -win.Bounds().H()/2, -win.Bounds().W()/2 + 300, win.Bounds().H()/2 + 300),
+				glitch.White)
+
+			{
+				theta := float64(time.Now().UnixMilli()) / 1000
+				textOscillation := 5 * math.Sin(7 * theta)
+				recordText.Set(fmt.Sprintf("High Score: %d", game.record))
+				recordText.DrawRect(pass,
+					rect.Moved(glitch.Vec2{130, -200 + textOscillation}),
+					glitch.FromUint8(0xfa, 0xcb, 0x3e, 0xff))
+			}
 		} else if game.mode == "game" {
-			packingLine.RectDraw(pass, game.acceptBounds)
+			packingLine.RectDraw(pass, game.levelBounds)
+			// {
+			// 	mat := glitch.Mat4Ident
+			// 	mat.Scale(4, 4, 1)
+			// 	packingLine.Draw(pass, mat)
+			// }
 
 			game.space.EachBody(func(body *cp.Body) {
 				DrawBody(pass, body)
@@ -192,14 +235,16 @@ func run() {
 			game.DrawNextPackages(pass, 8)
 
 			{
-				healthText.Set(fmt.Sprintf("Health: %d", game.health))
+				healthText.Set(fmt.Sprintf(" Health: %d", game.health))
 				mat := glitch.Mat4Ident
 				mat.Translate(-win.Bounds().W()/2, -win.Bounds().H()/2, 0)
 				healthText.Draw(pass, mat)
 			}
 		}
 
-		glitch.Clear(win, glitch.Black)
+		// glitch.Clear(win, glitch.Black)
+		// glitch.Clear(win, glitch.FromUint8(0x48, 0x3b, 0x3a, 0xff))
+		glitch.Clear(win, glitch.FromUint8(0x6b, 0x6b, 0x6b, 0xff))
 
 		pass.SetUniform("projection", camera.Projection)
 		pass.SetUniform("view", camera.View)
@@ -211,6 +256,7 @@ func run() {
 
 type Game struct {
 	mode string
+	record int
 
 	win *glitch.Window
 	spritesheet *asset.Spritesheet
@@ -303,23 +349,26 @@ func (g *Game) ResetLevel() {
 		}
 	}
 
-	numSprites := 11
+	packageTable := NewRngTable(
+		NewRngItem(20, "package-0.png"),
+		NewRngItem(20, "package-1.png"),
+		NewRngItem(20, "package-2.png"),
+		NewRngItem(20, "package-3.png"),
+		NewRngItem(20, "package-4.png"),
+		NewRngItem(20, "package-5.png"),
+		NewRngItem(20, "package-6.png"),
+		NewRngItem(10, "package-7.png"),
+		NewRngItem(1, "package-8.png"),
+		NewRngItem(1, "package-9.png"),
+		NewRngItem(1, "package-10.png"),
+		NewRngItem(1, "package-11.png"),
+	)
+
+	// numSprites := 11
 	g.packages = make([]string, 10 + g.difficulty)
 	for i := range g.packages {
-		packageNum := rand.Intn(numSprites)
-
-		if packageNum > 7 {
-			packageNum = rand.Intn(numSprites)
-			if packageNum > 7 {
-				if packageNum > 7 {
-					if packageNum > 7 {
-						packageNum = rand.Intn(numSprites)
-					}
-				}
-			}
-		}
-
-		g.packages[i] = fmt.Sprintf("package-%d.png", packageNum)
+		pkgName := packageTable.Roll()
+		g.packages[i] = pkgName
 	}
 
 	g.activeBounds = g.levelBounds.Unpad(glitch.R(100, 0, 100, 0))
@@ -385,7 +434,7 @@ func (g *Game) GetNextPackage() *cp.Shape {
 
 	pkg := g.packages[0]
 	g.packages = g.packages[1:]
-	fmt.Println("NextPackage: ", pkg)
+	// fmt.Println("NextPackage: ", pkg)
 	sprite, err := g.spritesheet.Get(pkg)
 	if err != nil { panic(err) }
 	s := NewSprite(sprite)

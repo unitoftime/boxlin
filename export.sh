@@ -15,6 +15,12 @@ do
     mogrify -trim tmp/${file}-*.png
 done
 
+filenames=(background)
+for file in ${filenames[@]}
+do
+    aseprite -b ./${file}.ase --save-as "./tmp/${file}-{frame}.png"
+done
+
 
 # Pack all images into a spritesheet
 packer --input ./tmp --stats --output assets/spritesheet

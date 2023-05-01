@@ -2,7 +2,8 @@ package main
 
 import (
 	// "fmt"
-	"time"
+	// "time"
+	// "io"
 	"github.com/hajimehoshi/go-mp3"
 	"github.com/hajimehoshi/oto/v2"
 
@@ -27,7 +28,7 @@ func LoadMp3(load *asset.Load, name string) *mp3.Decoder {
 
 type AudioPlayer struct {
 	ctx *oto.Context
-	player *oto.Player
+	player oto.Player
 }
 
 func NewAudioPlayer() *AudioPlayer {
@@ -54,37 +55,26 @@ func NewAudioPlayer() *AudioPlayer {
 	}
 }
 
+func (a *AudioPlayer) TogglePlayPause() {
+	if a.player.IsPlaying() {
+		a.player.Pause()
+	} else {
+		a.player.Play()
+	}
+}
+
 func (a *AudioPlayer) Play(decoder *mp3.Decoder) {
-	// TODO - need some larger audio loop that manages all my players
+	infLoop := NewInfiniteLoop(decoder, decoder.Length() - 10000) // TODO: I'm not sure why, but there seem to be some blank samples at the end or something, so I just trim those off (about 10k). Makes the loop better
+
 	go func() {
-		// Create a new 'player' that will handle our sound. Paused by default.
-		player := a.ctx.NewPlayer(decoder)
+		player := a.ctx.NewPlayer(infLoop)
+		a.player = player
 
 		// Play starts playing the sound and returns without waiting for it (Play() is async).
 		player.Play()
 
-		// if player.IsPlaying() {
-		// 	fmt.Println("PLAYING")
+		// for player.IsPlaying() {
+		// 	time.Sleep(1 * time.Millisecond)
 		// }
-		// TODO - we have to continually call this to keep it running it looks like? Is this a bug?
-		// We can wait for the sound to finish playing using something like this
-		for player.IsPlaying() {
-			time.Sleep(1 * time.Millisecond)
-		}
-
-		// Now that the sound finished playing, we can restart from the beginning (or go to any location in the sound) using seek
-		// newPos, err := player.(io.Seeker).Seek(0, io.SeekStart)
-		// if err != nil{
-		//     panic("player.Seek failed: " + err.Error())
-		// }
-		// println("Player is now at position:", newPos)
-		// player.Play()
-
-		// // If you don't want the player/sound anymore simply close
-		// err = player.Close()
-		// if err != nil {
-		// 	panic("player.Close failed: " + err.Error())
-		// }
-		a.player = &player
 	}()
 }

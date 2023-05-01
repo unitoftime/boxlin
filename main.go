@@ -7,6 +7,7 @@ package main
 // - [x] Show highest level achieved
 // - [x] Make a main menu background
 // - [ ] performance testing and wasm
+// - [ ] make pegs stand out better
 // - [ ] Make a song
 // - [ ] Submit???
 
@@ -83,9 +84,11 @@ func run() {
 
 	game.mode = "menu"
 
-	game.player = NewAudioPlayer()
-	bgMusic := LoadMp3(load, "assets/bg.mp3")
-	game.player.Play(bgMusic)
+	go func() {
+		game.player = NewAudioPlayer()
+		bgMusic := LoadMp3(load, "assets/bg.mp3")
+		game.player.Play(bgMusic)
+	}()
 	// game.hitSound = LoadMp3(load, "assets/hit.mp3")
 	// game.player.Play(game.hitSound)
 
@@ -114,9 +117,9 @@ func run() {
 				game.ResetGame()
 				game.mode = "game"
 			}
-			if win.JustPressed(glitch.KeyEscape) {
-				win.Close()
-			}
+			// if win.JustPressed(glitch.KeyEscape) {
+			// 	win.Close()
+			// }
 		} else if game.mode == "game" {
 			if win.JustPressed(glitch.KeyEscape) {
 				game.mode = "menu"

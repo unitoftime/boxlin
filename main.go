@@ -116,9 +116,9 @@ func run() {
 				game.ResetGame()
 				game.mode = "game"
 			}
-			if win.JustPressed(glitch.KeyEscape) {
-				win.Close()
-			}
+			// if win.JustPressed(glitch.KeyEscape) {
+			// 	win.Close()
+			// }
 		} else if game.mode == "game" {
 			if win.JustPressed(glitch.KeyEscape) {
 				game.mode = "menu"

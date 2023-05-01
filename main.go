@@ -306,11 +306,11 @@ func (g *Game) ResetGame() {
 
 func (g *Game) ResetLevel() {
 	g.space = cp.NewSpace()
-	g.space.Iterations = 4
+	g.space.Iterations = 8
 	// g.space.IdleSpeedThreshold = 0.1
 	g.space.SleepTimeThreshold = 1
 
-	g.space.UseSpatialHash(2.0, 10000)
+	// g.space.UseSpatialHash(2.0, 10)
 	g.space.SetGravity(cp.Vector{0, Gravity})
 
 	// handler := g.space.NewCollisionHandler(cp.WILDCARD_COLLISION_TYPE, cp.WILDCARD_COLLISION_TYPE)
